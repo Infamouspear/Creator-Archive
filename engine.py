@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 DATA = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "CreatorArchive"
 DEFAULTS = {
     "root": str(Path.home() / "Videos" / "Creator Archive"),
@@ -51,6 +51,10 @@ def channel_url(value):
 def safe_name(value, limit=75):
     value = re.sub(r'[<>:"/\\|?*%\x00-\x1f]', "_", value)[:limit].strip(" .")
     return value or "Untitled"
+
+
+def video_folder(title, ident):
+    return f"{safe_name(title, 48)} [{ident}]"
 
 
 def tool(name):
@@ -131,6 +135,7 @@ class Archive:
             db.executescript(SCHEMA)
             db.execute("UPDATE videos SET state='Queued' WHERE state='Downloading'")
             db.execute("UPDATE scans SET finished=?, result='Interrupted' WHERE finished IS NULL", (now(),))
+            self.rename_video_folders(db)
         self.scan_lock = threading.Lock()
         self.queue_lock = threading.Lock()
         self.paused = threading.Event()
@@ -140,6 +145,28 @@ class Archive:
         self.cancel = threading.Event()
         self.progress = ""
         self.scanning = ""
+
+    @staticmethod
+    def rename_video_folders(db):
+        rows = db.execute("SELECT id,path FROM videos WHERE state='Archived' AND path IS NOT NULL").fetchall()
+        for row in rows:
+            ident = row["id"]
+            path = Path(row["path"])
+            folder = path.parent
+            suffix = f" [{ident}]"
+            if (not VIDEO_ID.fullmatch(ident) or folder.name != ident or folder.parent.name not in TABS
+                    or not path.is_absolute() or not path.stem.endswith(suffix)):
+                continue
+            title = path.stem.removesuffix(suffix)
+            target = folder.with_name(video_folder(title, ident))
+            moved = target / path.name
+            try:
+                if path.is_file() and not folder.is_symlink() and not target.exists():
+                    folder.rename(target)
+                if not folder.exists() and not target.is_symlink() and moved.is_file():
+                    db.execute("UPDATE videos SET path=? WHERE id=?", (str(moved), ident))
+            except OSError:
+                continue
 
     @contextmanager
     def db(self):
@@ -164,7 +191,9 @@ class Archive:
     def creators(self):
         with self.db() as db:
             return db.execute("""SELECT c.*, (SELECT count(*) FROM videos v
-                WHERE v.creator=c.id AND v.state='Archived') AS archived
+                WHERE v.creator=c.id AND v.state='Archived') AS archived,
+                (SELECT s.result FROM scans s WHERE s.creator=c.id AND s.finished IS NOT NULL
+                 ORDER BY s.id DESC LIMIT 1) AS scan_result
                 FROM creators c WHERE active=1 ORDER BY name COLLATE NOCASE""").fetchall()
 
     def videos(self, creator=None):
@@ -184,6 +213,12 @@ class Archive:
         name = info.get("channel") or info.get("uploader") or info.get("title") or ident
         handle = info.get("uploader_id") or (url.rsplit("/", 1)[-1] if "/@" in url else "")
         thumbs = info.get("thumbnails") or []
+        avatar = next((image.get("url") for image in reversed(thumbs)
+                       if "avatar" in str(image.get("id", "")).lower() and image.get("url")), None)
+        if not avatar:
+            avatar = next((image.get("url") for image in reversed(thumbs)
+                           if image.get("width") and image["width"] == image.get("height")
+                           and image.get("url")), None)
         settings = self.settings()
         config = {key: settings[key] for key in ("mode", "quality", *TABS)}
         config["schedule"] = "Global"
@@ -191,7 +226,7 @@ class Archive:
             db.execute("""INSERT INTO creators(id,name,handle,thumbnail,baseline,config)
                         VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
                         active=1,name=excluded.name,handle=excluded.handle,thumbnail=excluded.thumbnail""",
-                       (ident, name, handle, thumbs[-1].get("url") if thumbs else None,
+                       (ident, name, handle, avatar or (thumbs[-1].get("url") if thumbs else None),
                         "Future" if baseline else "Full", json.dumps(config)))
         return ident
 
@@ -332,9 +367,15 @@ class Archive:
             folder = json.loads(stored["value"]) if stored else safe_name(item["name"], 45) + " [" + item["creator"] + "]"
             if not stored:
                 db.execute("INSERT INTO settings VALUES (?,?)", (folder_key, json.dumps(folder)))
-        target = Path(settings["root"]).resolve() / folder / item["category"] / ident
-        target.mkdir(parents=True, exist_ok=True)
         prefix = safe_name(item["title"]) + " [" + ident + "]"
+        category = Path(settings["root"]).resolve() / folder / item["category"]
+        named = category / video_folder(item["title"], ident)
+        legacy = category / ident
+        existing = next((path for path in category.glob(f"* [[]{ident}[]]") if path.is_dir()), None)
+        target = existing or named
+        if legacy.is_dir() and not target.exists():
+            legacy.rename(target)
+        target.mkdir(parents=True, exist_ok=True)
         info_path = target / (prefix + ".info.json")
         path_log = target / (prefix + ".path.tmp")
         path_log.unlink(missing_ok=True)

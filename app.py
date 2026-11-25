@@ -9,6 +9,7 @@ import time
 import tkinter as tk
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
 from queue import Empty, SimpleQueue
 from tkinter import filedialog, messagebox, ttk
@@ -22,6 +23,25 @@ TASK = "Creator Archive Background"
 MODES = ("Automatic", "Review")
 QUALITIES = ("Best", "2160", "1440", "1080", "720", "480")
 SCHEDULES = ("Manual", "Daily", "Weekly")
+BG = "#14171e"
+SIDEBAR = "#1b1f28"
+HEADER = "#222733"
+BORDER = "#3d4452"
+TEXT = "#f2f4f8"
+MUTED = "#b8c0d1"
+
+
+def local_scan(value):
+    if not value:
+        return "Never scanned"
+    stamp = datetime.fromisoformat(value).astimezone()
+    today = datetime.now().astimezone().date()
+    time = stamp.strftime("%I:%M %p").lstrip("0")
+    if stamp.date() == today:
+        return f"Today, {time}"
+    if stamp.date() == today - timedelta(days=1):
+        return f"Yesterday, {time}"
+    return f"{stamp:%b %d, %Y}, {time}"
 
 
 def schedule_task(enabled):
@@ -61,35 +81,60 @@ class App:
         self.archived_count = 0
         self.closing = False
         self.scan_batch = False
+        self.scan_current = None
         self.next_schedule_check = 0
         self.archived_count = sum(c['archived'] for c in archive.creators())
+        self.scale = root.winfo_fpixels("1i") / 96
         root.title(f"Creator Archive {VERSION}")
-        root.geometry("1100x700")
-        root.minsize(800, 530)
-        root.configure(background="#111923")
+        root.geometry(f"{round(1100 * self.scale)}x{round(700 * self.scale)}")
+        root.minsize(round(800 * self.scale), round(530 * self.scale))
+        root.configure(background=BG)
         style = ttk.Style(root)
         style.theme_use("clam")
-        style.configure(".", font=("Segoe UI", 10), background="#182330", foreground="#edf4fa")
-        style.configure("Treeview", fieldbackground="#111923", rowheight=32)
-        style.configure("Treeview.Heading", background="#24364a", foreground="#edf4fa")
-        style.configure("TButton", padding=(10, 6), background="#293e55")
-        style.configure("TEntry", fieldbackground="#111923", foreground="#edf4fa", insertcolor="white")
-        style.configure("TCombobox", fieldbackground="#111923", foreground="#edf4fa")
+        style.configure(".", font=("Segoe UI", 10), background=BG, foreground=TEXT)
+        style.configure("Surface.TFrame", background=SIDEBAR)
+        style.configure("Header.TFrame", background=HEADER)
+        style.configure("Header.TLabel", background=HEADER, foreground=MUTED, padding=(0, 8))
+        style.configure("Title.TLabel", font=("Segoe UI", 25, "bold"))
+        style.configure("Muted.TLabel", foreground=MUTED)
+        style.configure("Error.TLabel", foreground="#ffacaa")
+        style.configure("Treeview", fieldbackground=BG, rowheight=round(32 * self.scale))
+        style.configure("Treeview.Heading", background=HEADER, foreground=TEXT)
+        style.configure("TButton", padding=(9, 5), background=SIDEBAR, bordercolor=BORDER)
+        style.configure("Primary.TButton", background="#087bea", foreground="#ffffff", bordercolor="#087bea")
+        style.configure("Nav.TButton", anchor="w", padding=(12, 9), background=SIDEBAR, borderwidth=0)
+        style.configure("Selected.Nav.TButton", background="#254568")
+        style.configure("Creator.TButton", anchor="w", padding=(0, 4), background=BG, borderwidth=0,
+                        font=("Segoe UI", 12, "bold"))
+        style.configure("TEntry", fieldbackground=BG, foreground=TEXT, insertcolor=TEXT)
+        style.configure("TCombobox", fieldbackground=BG, foreground=TEXT, insertcolor=TEXT)
         style.map("Treeview", background=[("selected", "#305d83")])
-        style.map("TCombobox", fieldbackground=[("readonly", "#24364a")],
-                  foreground=[("readonly", "#edf4fa")])
-        style.map("TButton", background=[("active", "#385d7d")])
+        style.map("TCombobox", fieldbackground=[("readonly", HEADER)], foreground=[("readonly", TEXT)])
+        style.map("TButton", background=[("active", "#324762")])
+        style.map("Primary.TButton", background=[("active", "#006ad1")])
         self.status = tk.StringVar(value="Ready")
-        ttk.Label(root, text="Creator Archive", font=("Segoe UI", 23, "bold"),
-                  padding=(16, 10)).pack(fill="x")
-        self.tabs = ttk.Notebook(root)
-        self.tabs.pack(fill="both", expand=True, padx=12, pady=10)
+        body = ttk.Frame(root)
+        body.pack(fill="both", expand=True)
+        sidebar = ttk.Frame(body, style="Surface.TFrame", padding=(10, 20))
+        sidebar.pack(side="left", fill="y")
+        ttk.Label(sidebar, text="▣  Creator Archive", background=SIDEBAR,
+                  font=("Segoe UI", 13, "bold")).pack(anchor="w", padx=4, pady=(0, 24))
+        ttk.Separator(body, orient="vertical").pack(side="left", fill="y")
+        content = ttk.Frame(body)
+        content.pack(side="left", fill="both", expand=True)
         self.dashboard, self.detail, self.downloads, self.settings_page = [
-            ttk.Frame(self.tabs, padding=12) for _ in range(4)]
-        for page, name in zip((self.dashboard, self.detail, self.downloads, self.settings_page),
-                              ("Creators", "Creator details", "Downloads", "Settings")):
-            self.tabs.add(page, text=name)
-        ttk.Label(root, textvariable=self.status, padding=(12, 8)).pack(fill="x")
+            ttk.Frame(content, padding=(18, 16)) for _ in range(4)]
+        self.nav = {}
+        for page, name in ((self.dashboard, "Creators"), (self.downloads, "Downloads"),
+                           (self.settings_page, "Settings")):
+            button = ttk.Button(sidebar, text=name, style="Nav.TButton", width=17,
+                                command=lambda page=page: self.show_page(page))
+            button.pack(fill="x", pady=2)
+            self.nav[page] = button
+        self.page = None
+        self.show_page(self.dashboard)
+        ttk.Separator(root).pack(fill="x")
+        ttk.Label(root, textvariable=self.status, style="Muted.TLabel", padding=(12, 7)).pack(fill="x")
         self.setup_dashboard()
         self.setup_detail()
         self.setup_downloads()
@@ -124,25 +169,148 @@ class App:
         scroll.pack(side="right", fill="y")
         return view
 
+    def show_page(self, page):
+        if self.page:
+            self.page.pack_forget()
+        self.page = page
+        page.pack(fill="both", expand=True)
+        active = self.dashboard if page == self.detail else page
+        for destination, button in self.nav.items():
+            button.configure(style="Selected.Nav.TButton" if destination == active else "Nav.TButton")
+
     def setup_dashboard(self):
-        self.buttons(self.dashboard, [
-            ("Add creator", self.add_creator), ("Scan selected", lambda: self.scan(self.creators.selection())),
-            ("Scan All", lambda: self.scan([c["id"] for c in self.archive.creators()])),
-            ("Open creator", self.open_creator), ("Remove", self.remove_creator),
-        ])
-        self.creators = self.tree(self.dashboard, (
-            ("Creator", 250), ("Handle", 160), ("Archived", 80), ("Last successful scan", 225)), "browse", thumbnails=True)
-        self.creators.bind("<Double-1>", lambda event: self.open_creator())
+        heading = ttk.Frame(self.dashboard)
+        heading.pack(fill="x", pady=(0, 14))
+        labels = ttk.Frame(heading)
+        labels.pack(side="left")
+        ttk.Label(labels, text="Creators", style="Title.TLabel").pack(anchor="w")
+        self.creator_count = tk.StringVar()
+        ttk.Label(labels, textvariable=self.creator_count, style="Muted.TLabel").pack(anchor="w")
+        ttk.Button(heading, text="+  Add creator", style="Primary.TButton",
+                   command=self.add_creator).pack(side="right", padx=(8, 0))
+        self.scan_all = ttk.Button(heading, text="Scan all",
+                                   command=lambda: self.scan([c["id"] for c in self.archive.creators()]))
+        self.scan_all.pack(side="right")
+        panel = ttk.Frame(self.dashboard)
+        panel.pack(fill="both", expand=True)
+        canvas = tk.Canvas(panel, background=BG, highlightthickness=0)
+        scroll = ttk.Scrollbar(panel, orient="vertical", command=canvas.yview)
+        def scroll_state(first, last):
+            scroll.set(first, last)
+            if float(first) > 0 or float(last) < 1:
+                if not scroll.winfo_manager():
+                    scroll.pack(side="right", fill="y", before=canvas)
+            else:
+                scroll.pack_forget()
+        canvas.configure(yscrollcommand=scroll_state)
+        canvas.pack(side="left", fill="both", expand=True)
+        table = ttk.Frame(canvas)
+        window = canvas.create_window(0, 0, window=table, anchor="nw")
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
+        table.bind("<Configure>", lambda event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind_all("<MouseWheel>", self.scroll_creators, add="+")
+        self.creator_canvas = canvas
+        self.creator_table = table
+        self.creator_rows = {}
+        self.creator_ids = None
+        header = ttk.Frame(table, style="Header.TFrame", padding=(12, 0))
+        header.pack(fill="x")
+        self.creator_columns(header)
+        for column, text in ((0, "Creator"), (1, "Archived"), (2, "Last successful scan")):
+            ttk.Label(header, text=text, style="Header.TLabel").grid(row=0, column=column, sticky="w")
+        self.empty_creators = ttk.Label(table, text="Add a YouTube creator to start your archive.",
+                                        style="Muted.TLabel", padding=(12, 20))
+
+    def scroll_creators(self, event):
+        if self.page == self.dashboard:
+            self.creator_canvas.yview_scroll(-int(event.delta / 120), "units")
+
+    def creator_columns(self, frame):
+        for column, width in enumerate((140, 110, 175, 68, 34)):
+            frame.columnconfigure(column, weight=int(column == 0), minsize=round(width * self.scale))
+
+    def creator_row(self, creator):
+        ident = creator["id"]
+        block = ttk.Frame(self.creator_table)
+        block.pack(fill="x")
+        ttk.Separator(block).pack(fill="x")
+        row = ttk.Frame(block, padding=(12, 7))
+        row.pack(fill="x")
+        self.creator_columns(row)
+        identity = ttk.Frame(row)
+        identity.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        avatar = tk.Label(identity, text="•", background=HEADER, foreground=MUTED,
+                          font=("Segoe UI", 15), cursor="hand2")
+        avatar.pack(side="left", padx=(0, 9), ipadx=6, ipady=3)
+        avatar.bind("<Button-1>", lambda event: self.open_creator(ident))
+        labels = ttk.Frame(identity)
+        labels.pack(side="left", fill="x", expand=True)
+        name = ttk.Button(labels, style="Creator.TButton", command=lambda: self.open_creator(ident))
+        name.pack(fill="x")
+        handle = ttk.Label(labels, style="Muted.TLabel")
+        handle.pack(anchor="w")
+        handle.bind("<Button-1>", lambda event: self.open_creator(ident))
+        archived = ttk.Label(row)
+        archived.grid(row=0, column=1, sticky="w")
+        scan_info = ttk.Frame(row)
+        scan_info.grid(row=0, column=2, sticky="ew", padx=(0, 5))
+        last = ttk.Label(scan_info)
+        last.pack(anchor="w")
+        state = ttk.Label(scan_info, style="Muted.TLabel", wraplength=round(145 * self.scale))
+        scan = ttk.Button(row, text="Scan", width=6, command=lambda: self.scan([ident]))
+        scan.grid(row=0, column=3, sticky="w")
+        menu = tk.Menu(row, tearoff=False)
+        menu.add_command(label="Open creator", command=lambda: self.open_creator(ident))
+        menu.add_command(label="Remove", command=lambda: self.remove_creator(ident))
+        more = ttk.Button(row, text="⋯", width=2)
+        more.configure(command=lambda: menu.tk_popup(more.winfo_rootx(), more.winfo_rooty() + more.winfo_height()))
+        more.grid(row=0, column=4, sticky="e")
+        return block, avatar, name, handle, archived, last, state, scan
+
+    def refresh_creators(self, creators):
+        ids = tuple(c["id"] for c in creators)
+        if ids != self.creator_ids:
+            self.creator_ids = ids
+            for block, *_ in self.creator_rows.values():
+                block.destroy()
+            self.creator_rows = {c["id"]: self.creator_row(c) for c in creators}
+            self.creator_count.set(f"{len(ids)} creator" + ("" if len(ids) == 1 else "s"))
+            self.empty_creators.pack_forget()
+            if not ids:
+                self.empty_creators.pack(anchor="w")
+        self.scan_all.configure(state="disabled" if self.scan_batch or not ids else "normal")
+        for creator in creators:
+            ident = creator["id"]
+            _, avatar, name, handle, archived, last, state, scan = self.creator_rows[ident]
+            title = creator["name"]
+            name.configure(text=title if len(title) <= 32 else title[:31] + "…")
+            handle.configure(text=creator["handle"] or "")
+            archived.configure(text=creator["archived"])
+            last.configure(text=local_scan(creator["last_scan"]))
+            scanning = ident == self.scan_current
+            result = creator["scan_result"]
+            if scanning:
+                state.configure(text="Scanning…", style="Muted.TLabel")
+                state.pack(anchor="w")
+            elif result and result != "Success":
+                state.configure(text=result, style="Error.TLabel")
+                state.pack(anchor="w")
+            else:
+                state.pack_forget()
+            scan.configure(state="disabled" if self.scan_batch else "normal")
+            self.thumbnail(creator["thumbnail"], lambda image: avatar.configure(image=image, text=""),
+                           avatar=True)
 
     def setup_detail(self):
+        self.buttons(self.detail, [("‹  Back to creators", lambda: self.show_page(self.dashboard))])
         self.identity = tk.StringVar(value="Select a creator from the Creators page.")
-        ttk.Label(self.detail, textvariable=self.identity, font=("Segoe UI", 15, "bold")).pack(anchor="w", pady=(0, 10))
-        row = self.buttons(self.detail, [
+        ttk.Label(self.detail, textvariable=self.identity, style="Title.TLabel").pack(anchor="w", pady=(0, 10))
+        self.buttons(self.detail, [
             ("Download selected", lambda: self.queue(self.items.selection())),
             ("Scan", lambda: self.scan([self.current] if self.current else [])),
             ("Creator settings", self.creator_settings), ("Scan history", self.history),
-            ("Open on YouTube", self.open_video),
         ])
+        row = self.buttons(self.detail, [("Open on YouTube", self.open_video)])
         self.category = tk.StringVar(value="All categories")
         ttk.Combobox(row, textvariable=self.category, values=("All categories", *TABS),
                      width=16, state="readonly").pack(side="right")
@@ -150,10 +318,13 @@ class App:
                                              ("Status", 100), ("Message", 240)), thumbnails=True)
 
     def setup_downloads(self):
+        ttk.Label(self.downloads, text="Downloads", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
         self.buttons(self.downloads, [
             ("Pause / resume queue", self.toggle_pause),
             ("Retry selected", lambda: self.queue(self.jobs.selection())),
             ("Cancel selected", lambda: self.archive.cancel_items(self.jobs.selection())),
+        ])
+        self.buttons(self.downloads, [
             ("Verify local files", lambda: self.submit(self.archive.verify)),
             ("Open local folder", self.open_local),
         ])
@@ -171,6 +342,7 @@ class App:
         return row
 
     def setup_settings(self):
+        ttk.Label(self.settings_page, text="Settings", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
         page = self.settings_page
         self.options = {}
         settings = self.archive.settings()
@@ -192,8 +364,9 @@ class App:
             ttk.Checkbutton(page, text=title, variable=var).pack(anchor="w")
         self.buttons(page, [
             ("Save settings", self.save_settings), ("Open tools folder", self.open_tools),
-            ("Update yt-dlp", self.update_tool), ("Check for app update", self.check_update),
+            ("Update yt-dlp", self.update_tool),
         ])
+        self.buttons(page, [("Check for app update", self.check_update)])
         self.tool_status = tk.StringVar()
         ttk.Label(page, textvariable=self.tool_status, wraplength=700).pack(anchor="w")
         self.buttons(page, [
@@ -297,20 +470,17 @@ class App:
             self.submit(lambda: self.archive.add(value, baseline), callback=lambda ident: self.scan([ident]))
         self.buttons(panel, [("Add and scan", add)])
 
-    def open_creator(self):
-        selected = self.creators.selection()
-        if selected:
-            self.current = selected[0]
-            self.tabs.select(self.detail)
-            self.refresh()
+    def open_creator(self, ident):
+        self.current = ident
+        self.show_page(self.detail)
+        self.refresh()
 
-    def remove_creator(self):
-        selected = self.creators.selection()
-        if selected and messagebox.askyesno("Remove creator", "Stop monitoring this creator? Archived files are kept."):
-            self.archive.remove(selected[0])
-            if self.current == selected[0]:
+    def remove_creator(self, ident):
+        if messagebox.askyesno("Remove creator", "Stop monitoring this creator? Archived files are kept."):
+            self.archive.remove(ident)
+            if self.current == ident:
                 self.current = None
-                self.identity.set("Select a creator from the Creators page.")
+            self.refresh()
 
     def creator_settings(self):
         row = next((c for c in self.archive.creators() if c["id"] == self.current), None)
@@ -341,7 +511,7 @@ class App:
             rows = db.execute("SELECT * FROM scans WHERE creator=? ORDER BY id DESC LIMIT 20",
                               (self.current,)).fetchall()
         messagebox.showinfo("Scan history", "\n".join(
-            f"{row['started']}   {row['result'] or 'Running'}"
+            f"{local_scan(row['started'])}   {row['result'] or 'Running'}"
             + (f" ({row['count']} found)" if row["count"] is not None else "") for row in rows
         ) or "No scans yet.")
 
@@ -382,9 +552,12 @@ class App:
                 if self.archive.stop.is_set():
                     break
                 try:
+                    self.scan_current = ident
                     self.archive.scan(ident)
                 except Exception as error:
                     errors.append(str(error))
+                finally:
+                    self.scan_current = None
             return errors
         def finished(errors):
             self.scan_batch = False
@@ -427,15 +600,16 @@ class App:
         if old:
             view.delete(*old)
 
-    def thumbnail(self, view, ident, url):
+    def thumbnail(self, url, display, avatar=False):
         if not isinstance(url, str) or not url:
             return
-        if url in self.thumbnail_cache:
-            image = self.thumbnail_cache[url]
+        key = (url, avatar)
+        if key in self.thumbnail_cache:
+            image = self.thumbnail_cache[key]
             if image:
-                view.item(ident, image=image)
+                display(image)
             return
-        if url in self.thumbnail_urls:
+        if key in self.thumbnail_urls:
             return
         try:
             parts = urlsplit(url)
@@ -448,7 +622,13 @@ class App:
             ffmpeg = tool("ffmpeg")
         except (RuntimeError, ValueError):
             return
-        self.thumbnail_urls.add(url)
+        self.thumbnail_urls.add(key)
+        size = max(34, round(38 * self.root.winfo_fpixels("1i") / 96))
+        scale = "scale=50:30:force_original_aspect_ratio=decrease"
+        if avatar:
+            scale = (f"scale={size}:{size}:force_original_aspect_ratio=increase,crop={size}:{size},format=rgba,"
+                     "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':"
+                     "a='if(lte(hypot(X-(W-1)/2,Y-(H-1)/2),W/2),255,0)'")
         def load():
             data = None
             try:
@@ -456,7 +636,7 @@ class App:
                     source = response.read(2_000_000)
                 result = subprocess.run(
                     [ffmpeg, "-v", "error", "-i", "pipe:0", "-vf",
-                     "scale=50:30:force_original_aspect_ratio=decrease", "-frames:v", "1",
+                     scale, "-frames:v", "1",
                      "-f", "image2pipe", "-vcodec", "png", "pipe:1"],
                     input=source, capture_output=True, creationflags=NO_WINDOW, timeout=8)
                 if result.returncode == 0:
@@ -466,19 +646,16 @@ class App:
             self.messages.put((remember, data, None))
 
         def remember(data):
-            self.thumbnail_urls.discard(url)
+            self.thumbnail_urls.discard(key)
             try:
-                self.thumbnail_cache[url] = tk.PhotoImage(data=data) if data else None
+                self.thumbnail_cache[key] = tk.PhotoImage(data=data) if data else None
             except tk.TclError:
-                self.thumbnail_cache[url] = None
+                self.thumbnail_cache[key] = None
         self.images.submit(load)
 
     def refresh(self):
         creators = self.archive.creators()
-        self.fill(self.creators, [(c["id"], (c["name"], c["handle"] or "", c["archived"],
-                                            (c["last_scan"] or "Never").replace("T", " "))) for c in creators])
-        for creator in creators[:40]:
-            self.thumbnail(self.creators, creator["id"], creator["thumbnail"])
+        self.refresh_creators(creators)
         if self.current:
             creator = next((c for c in creators if c["id"] == self.current), None)
             if creator:
@@ -489,7 +666,7 @@ class App:
                                                  v["state"], v["error"] or ""))
                                        for v in videos])
                 for v in videos[:40]:
-                    self.thumbnail(self.items, v["id"], v["thumbnail"])
+                    self.thumbnail(v["thumbnail"], lambda image, ident=v["id"]: self.items.item(ident, image=image))
         else:
             self.fill(self.items, [])
         with self.archive.db() as db:
