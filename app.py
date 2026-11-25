@@ -2,7 +2,6 @@ import base64
 import json
 import msvcrt
 import os
-import re
 import subprocess
 import sys
 import threading
@@ -14,9 +13,10 @@ from pathlib import Path
 from queue import Empty, SimpleQueue
 from tkinter import filedialog, messagebox, ttk
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
 from engine import Archive, DATA, NO_WINDOW, TABS, VERSION, tool
+from updater import download_installer, find_update
 
 TASK = "Creator Archive Background"
 MODES = ("Automatic", "Review")
@@ -46,27 +46,6 @@ def schedule_task(enabled):
             raise RuntimeError("Windows could not register the background task.")
 
 
-def release():
-    config = Path(__file__).with_name("release_repo.txt")
-    repo = config.read_text(encoding="utf-8-sig").strip() if config.exists() else ""
-    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo):
-        raise RuntimeError("This build has no GitHub release repository configured.")
-    request = Request(f"https://api.github.com/repos/{repo}/releases/latest",
-                      headers={"User-Agent": "Creator-Archive", "Accept": "application/vnd.github+json"})
-    try:
-        with urlopen(request, timeout=15) as response:
-            info = json.load(response)
-    except OSError as error:
-        raise RuntimeError("The GitHub release could not be reached. Public release access is required for this updater.") from error
-    tag = info.get("tag_name", "")
-    if not re.fullmatch(r"v?\d+\.\d+\.\d+", tag):
-        raise RuntimeError("GitHub did not return a supported release version.")
-    version = tuple(map(int, tag.lstrip("v").split(".")))
-    if version > tuple(map(int, VERSION.split("."))):
-        return tag, f"https://github.com/{repo}/releases/tag/{tag}"
-    return None
-
-
 class App:
     def __init__(self, root, archive):
         self.root, self.archive = root, archive
@@ -78,6 +57,7 @@ class App:
         self.current = None
         self.settings_dirty = False
         self.update_running = False
+        self.update_installer = None
         self.archived_count = 0
         self.closing = False
         self.scan_batch = False
@@ -262,14 +242,33 @@ class App:
         self.submit(update, callback=lambda message: (self.refresh_tools(), self.status.set(message)))
 
     def check_update(self, quiet=False):
+        if self.update_running:
+            return
+
+        def install(path):
+            self.update_installer = path
+            self.close()
+
+        def failed():
+            self.update_running = False
+
         def show(update):
+            self.update_running = False
             if update:
-                tag, url = update
-                if messagebox.askyesno("App update", f"{tag} is available. Open its GitHub release page?"):
-                    webbrowser.open(url)
+                tag = update[0]
+                if messagebox.askyesno(
+                    "App update",
+                    f"{tag} is available. Download it and close Creator Archive to run the installer?"
+                    "\n\nAny active download will be queued to resume when the app is reopened.",
+                ):
+                    self.update_running = True
+                    self.status.set(f"Downloading Creator Archive {tag}…")
+                    self.submit(lambda: download_installer(update), callback=install, on_error=failed)
             elif not quiet:
                 messagebox.showinfo("App update", "You have the latest version.")
-        self.submit(release, callback=show, quiet=quiet)
+
+        self.update_running = True
+        self.submit(find_update, callback=show, quiet=quiet, on_error=failed)
 
     def save_settings(self):
         values = {key: var.get() for key, var in self.options.items()}
@@ -394,11 +393,13 @@ class App:
                 messagebox.showerror("Scan", "\n".join(dict.fromkeys(errors)))
         self.submit(batch, callback=finished)
 
-    def submit(self, fn, callback=None, quiet=False):
+    def submit(self, fn, callback=None, quiet=False, on_error=None):
         def run():
             try:
                 self.messages.put((callback, fn(), None))
             except Exception as error:
+                if on_error:
+                    self.messages.put((lambda _: on_error(), None, None))
                 self.messages.put((None, None, None if quiet else str(error)))
         self.pool.submit(run)
 
@@ -531,6 +532,8 @@ class App:
                     messagebox.showerror("Creator Archive", error)
                 elif callback:
                     callback(value)
+                    if self.closing:
+                        return
         except Empty:
             pass
         self.refresh()
@@ -584,6 +587,14 @@ def main():
             root.mainloop()
             app.pool.shutdown(wait=True, cancel_futures=True)
             app.worker.join()
+    if not background and app.update_installer:
+        try:
+            subprocess.Popen([str(app.update_installer)], cwd=app.update_installer.parent, close_fds=True)
+        except OSError as error:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("App update", f"Could not open the installer: {error}")
+            root.destroy()
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-# Creator Archive 0.1.1
+# Creator Archive 0.1.2
 
 Windows desktop app using Python 3.12, Tk/ttk and SQLite. The GUI submits work to a scan executor. Discovery returns a complete snapshot before a transaction applies baseline or queue rules. A separate worker claims persisted download jobs one at a time. The Windows scheduled task opens the same executable in headless mode. A per-user file lock prevents concurrent engines.
 
@@ -6,4 +6,6 @@ Build with `powershell -ExecutionPolicy Bypass -File build.ps1` from this direct
 
 The application stores its database in %LOCALAPPDATA%\CreatorArchive. New downloads place each video and its metadata in a folder named for the YouTube video ID under the creator and category. A storage change applies to future downloads. Existing records retain absolute paths. The scheduler runs under the signed-in user. Uninstall removes the scheduled task and preserves the database and archive.
 
-Before publishing, review the source and assets for personal information, confirm repository visibility and configure the exact owner/repo in release_repo.txt before building. Attach CreatorArchive-0.1.1-x64-Setup.exe to the v0.1.1 release. The application checks the latest stable release and opens its page for user-controlled installation. yt-dlp updates are separate.
+Settings → Check for app update looks for newer GitHub releases, including published previews. With your approval, it downloads the Windows x64 installer, verifies its size and GitHub SHA-256 digest, closes Creator Archive, and opens Windows Setup. For the private repository, install Git for Windows with Git Credential Manager and sign in as Infamouspear. Public releases can be downloaded without a GitHub login.
+
+Before publishing, review the source and assets for personal information and confirm the repository visibility. Attach the matching Windows x64 installer to each versioned GitHub release. yt-dlp updates are separate.

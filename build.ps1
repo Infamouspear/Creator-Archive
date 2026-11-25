@@ -4,9 +4,6 @@ $bundle = @()
 if ((Test-Path tools) -and (Get-ChildItem tools -File)) {
     $bundle += @('--add-data', 'tools;tools')
 }
-if (Test-Path release_repo.txt) {
-    $bundle += @('--add-data', 'release_repo.txt;.')
-}
 python -m PyInstaller --noconfirm --windowed --name CreatorArchive @bundle app.py
 if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed.' }
 $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 DATA = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "CreatorArchive"
 DEFAULTS = {
     "root": str(Path.home() / "Videos" / "Creator Archive"),
