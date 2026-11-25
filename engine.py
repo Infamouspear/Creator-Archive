@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 DATA = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "CreatorArchive"
 DEFAULTS = {
     "root": str(Path.home() / "Videos" / "Creator Archive"),
@@ -332,7 +332,7 @@ class Archive:
             folder = json.loads(stored["value"]) if stored else safe_name(item["name"], 45) + " [" + item["creator"] + "]"
             if not stored:
                 db.execute("INSERT INTO settings VALUES (?,?)", (folder_key, json.dumps(folder)))
-        target = Path(settings["root"]).resolve() / folder / item["category"]
+        target = Path(settings["root"]).resolve() / folder / item["category"] / ident
         target.mkdir(parents=True, exist_ok=True)
         prefix = safe_name(item["title"]) + " [" + ident + "]"
         info_path = target / (prefix + ".info.json")
