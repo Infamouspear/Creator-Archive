@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.sqlite*
+*.db*
+*.log
+*.spec
+.env*
+build/
+dist/
+tools/
+release_repo.txt
