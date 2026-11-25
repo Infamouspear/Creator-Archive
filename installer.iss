@@ -1,4 +1,4 @@
-#define AppVersion "0.1.3"
+#define AppVersion "0.1.4"
 [Setup]
 AppId=CreatorArchive
 AppName=Creator Archive

@@ -89,6 +89,10 @@ class App:
         root.geometry(f"{round(1100 * self.scale)}x{round(700 * self.scale)}")
         root.minsize(round(800 * self.scale), round(530 * self.scale))
         root.configure(background=BG)
+        root.option_add("*TCombobox*Listbox.background", HEADER)
+        root.option_add("*TCombobox*Listbox.foreground", TEXT)
+        root.option_add("*TCombobox*Listbox.selectBackground", "#305d83")
+        root.option_add("*TCombobox*Listbox.selectForeground", TEXT)
         style = ttk.Style(root)
         style.theme_use("clam")
         style.configure(".", font=("Segoe UI", 10), background=BG, foreground=TEXT)
@@ -98,18 +102,31 @@ class App:
         style.configure("Title.TLabel", font=("Segoe UI", 25, "bold"))
         style.configure("Muted.TLabel", foreground=MUTED)
         style.configure("Error.TLabel", foreground="#ffacaa")
-        style.configure("Treeview", fieldbackground=BG, rowheight=round(32 * self.scale))
-        style.configure("Treeview.Heading", background=HEADER, foreground=TEXT)
+        style.configure("Treeview", background=BG, fieldbackground=BG, foreground=TEXT,
+                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                        rowheight=round(32 * self.scale))
+        style.configure("Treeview.Heading", background=HEADER, foreground=TEXT,
+                        bordercolor=BORDER, lightcolor=HEADER, darkcolor=HEADER)
+        style.configure("TScrollbar", background=HEADER, troughcolor=BG, arrowcolor=MUTED,
+                        bordercolor=BORDER, lightcolor=HEADER, darkcolor=HEADER)
+        style.configure("TCheckbutton", indicatorbackground=HEADER, indicatorforeground=TEXT)
+        style.map("TCheckbutton", indicatorbackground=[("selected", "#305d83"), ("!selected", HEADER)])
         style.configure("TButton", padding=(9, 5), background=SIDEBAR, bordercolor=BORDER)
         style.configure("Primary.TButton", background="#087bea", foreground="#ffffff", bordercolor="#087bea")
         style.configure("Nav.TButton", anchor="w", padding=(12, 9), background=SIDEBAR, borderwidth=0)
         style.configure("Selected.Nav.TButton", background="#254568")
         style.configure("Creator.TButton", anchor="w", padding=(0, 4), background=BG, borderwidth=0,
                         font=("Segoe UI", 12, "bold"))
-        style.configure("TEntry", fieldbackground=BG, foreground=TEXT, insertcolor=TEXT)
-        style.configure("TCombobox", fieldbackground=BG, foreground=TEXT, insertcolor=TEXT)
-        style.map("Treeview", background=[("selected", "#305d83")])
-        style.map("TCombobox", fieldbackground=[("readonly", HEADER)], foreground=[("readonly", TEXT)])
+        for control in ("TEntry", "TCombobox"):
+            style.configure(control, fieldbackground=HEADER, foreground=TEXT, insertcolor=TEXT,
+                            selectbackground="#305d83", selectforeground=TEXT, bordercolor=BORDER,
+                            lightcolor=HEADER, darkcolor=HEADER)
+            style.map(control, fieldbackground=[("disabled", SIDEBAR), ("!disabled", HEADER)],
+                      foreground=[("disabled", MUTED), ("!disabled", TEXT)])
+        style.configure("TCombobox", arrowcolor=TEXT)
+        style.map("Treeview", background=[("selected", "#305d83"), ("!selected", BG)],
+                  foreground=[("selected", TEXT), ("!selected", TEXT)])
+        style.map("Treeview.Heading", background=[("active", "#324762"), ("!active", HEADER)])
         style.map("TButton", background=[("active", "#324762")])
         style.map("Primary.TButton", background=[("active", "#006ad1")])
         self.status = tk.StringVar(value="Ready")
@@ -259,7 +276,8 @@ class App:
         state = ttk.Label(scan_info, style="Muted.TLabel", wraplength=round(145 * self.scale))
         scan = ttk.Button(row, text="Scan", width=6, command=lambda: self.scan([ident]))
         scan.grid(row=0, column=3, sticky="w")
-        menu = tk.Menu(row, tearoff=False)
+        menu = tk.Menu(row, tearoff=False, background=HEADER, foreground=TEXT,
+                       activebackground="#305d83", activeforeground=TEXT)
         menu.add_command(label="Open creator", command=lambda: self.open_creator(ident))
         menu.add_command(label="Remove", command=lambda: self.remove_creator(ident))
         more = ttk.Button(row, text="⋯", width=2)
@@ -457,7 +475,7 @@ class App:
         self.submit(save, callback=self.status.set)
 
     def add_creator(self):
-        dialog = tk.Toplevel(self.root)
+        dialog = tk.Toplevel(self.root, background=BG)
         dialog.title("Add creator")
         panel = ttk.Frame(dialog, padding=15)
         panel.pack(fill="both", expand=True)
@@ -487,7 +505,7 @@ class App:
         if not row:
             return
         config = json.loads(row["config"])
-        dialog = tk.Toplevel(self.root)
+        dialog = tk.Toplevel(self.root, background=BG)
         dialog.title(f"Settings · {row['name']}")
         panel = ttk.Frame(dialog, padding=15)
         panel.pack(fill="both", expand=True)
