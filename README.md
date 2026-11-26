@@ -1,4 +1,4 @@
-# Creator Archive 0.1.4
+# Creator Archive 0.1.5
 
 Windows desktop app using Python 3.12, Tk/ttk and SQLite. The GUI submits work to a scan executor. Discovery returns a complete snapshot before a transaction applies baseline or queue rules. A separate worker claims persisted download jobs one at a time. The Windows scheduled task opens the same executable in headless mode. A per-user file lock prevents concurrent engines.
 

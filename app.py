@@ -328,12 +328,55 @@ class App:
             ("Scan", lambda: self.scan([self.current] if self.current else [])),
             ("Creator settings", self.creator_settings), ("Scan history", self.history),
         ])
-        row = self.buttons(self.detail, [("Open on YouTube", self.open_video)])
+        self.buttons(self.detail, [("Open on YouTube", self.open_video)])
+        row = ttk.Frame(self.detail)
+        row.pack(fill="x", pady=(0, 7))
+        self.video_search = tk.StringVar()
+        self.video_results = tk.StringVar()
+        self.video_filter_job = None
+        ttk.Label(row, text="Search titles").pack(side="left", padx=(0, 6))
+        search = ttk.Entry(row, textvariable=self.video_search, width=15)
+        search.pack(side="left", fill="x", expand=True)
+        search.bind("<Escape>", lambda event: self.video_search.set(""))
+        ttk.Button(row, text="Clear", command=lambda: self.video_search.set("")).pack(side="left", padx=6)
         self.category = tk.StringVar(value="All categories")
         ttk.Combobox(row, textvariable=self.category, values=("All categories", *TABS),
-                     width=16, state="readonly").pack(side="right")
+                     width=16, state="readonly").pack(side="left")
+        ttk.Label(self.detail, textvariable=self.video_results, style="Muted.TLabel").pack(anchor="w", pady=(0, 5))
         self.items = self.tree(self.detail, (("Title", 345), ("Category", 110), ("Uploaded", 95),
                                              ("Status", 100), ("Message", 240)), thumbnails=True)
+        self.video_search.trace_add("write", self.schedule_video_filter)
+        self.category.trace_add("write", self.schedule_video_filter)
+
+    def schedule_video_filter(self, *_):
+        if self.video_filter_job is not None:
+            self.root.after_cancel(self.video_filter_job)
+        self.video_filter_job = self.root.after(100, self.refresh_videos)
+
+    def refresh_videos(self):
+        if self.video_filter_job is not None:
+            self.root.after_cancel(self.video_filter_job)
+            self.video_filter_job = None
+        videos = self.archive.videos(self.current) if self.current else []
+        category = self.category.get()
+        query = self.video_search.get().strip()
+        terms = query.casefold().split()
+        matches = []
+        for video in videos:
+            if category != "All categories" and video["category"] != category:
+                continue
+            title = video["title"].casefold()
+            if all(term in title for term in terms) or query == video["id"]:
+                matches.append(video)
+        if not matches and (terms or category != "All categories"):
+            self.video_results.set(f"No matching videos · {len(videos):,} in this archive")
+        else:
+            self.video_results.set(f"{len(matches):,} of {len(videos):,} videos")
+        self.fill(self.items, [(v["id"], (v["title"], v["category"], v["uploaded"] or "",
+                                         v["state"], v["error"] or "")) for v in matches])
+        for video in matches[:40]:
+            self.thumbnail(video["thumbnail"],
+                           lambda image, ident=video["id"]: self.items.item(ident, image=image))
 
     def setup_downloads(self):
         ttk.Label(self.downloads, text="Downloads", style="Title.TLabel").pack(anchor="w", pady=(0, 10))
@@ -489,6 +532,8 @@ class App:
         self.buttons(panel, [("Add and scan", add)])
 
     def open_creator(self, ident):
+        if ident != self.current:
+            self.video_search.set("")
         self.current = ident
         self.show_page(self.detail)
         self.refresh()
@@ -674,19 +719,11 @@ class App:
     def refresh(self):
         creators = self.archive.creators()
         self.refresh_creators(creators)
-        if self.current:
+        if self.page == self.detail and self.current:
             creator = next((c for c in creators if c["id"] == self.current), None)
             if creator:
                 self.identity.set(f"{creator['name']}   {creator['handle'] or ''}")
-                category = self.category.get()
-                videos = [v for v in self.archive.videos(self.current) if category in {"All categories", v["category"]}]
-                self.fill(self.items, [(v["id"], (v["title"], v["category"], v["uploaded"] or "",
-                                                 v["state"], v["error"] or ""))
-                                       for v in videos])
-                for v in videos[:40]:
-                    self.thumbnail(v["thumbnail"], lambda image, ident=v["id"]: self.items.item(ident, image=image))
-        else:
-            self.fill(self.items, [])
+                self.refresh_videos()
         with self.archive.db() as db:
             jobs = db.execute("""SELECT id,title,category,state,error FROM videos WHERE state IN
                               ('Queued','Downloading','Archived','Failed','Cancelled','Missing')
